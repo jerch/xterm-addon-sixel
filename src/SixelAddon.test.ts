@@ -53,17 +53,17 @@ describe('Sixel support', () => {
     `);
 
     // wikipedia example
-    page.evaluate(data => {
-      (window as any).term.write('Hi:\r\n' + data);
+    await page.evaluate(data => {
+      (window as any).term.write('Hi:' + data + 'are we inline?\r\n');
     }, SIXEL_TEST);
 
     // gnuplot demo file
-    page.evaluate(data => {
-      (window as any).term.write('\r\ngnuplot:\r\n' + data);
+    await page.evaluate(data => {
+      (window as any).term.write('\r\ngnuplot (right shifted and truncated):' + data);
     }, fs.readFileSync('./gnuplot.six', {encoding: 'ascii'}));
 
     // boticelli demo file
-    page.evaluate(data => {
+    await page.evaluate(data => {
       (window as any).term.write('\r\nboticelli:\r\n' + data);
     }, fs.readFileSync('./boticelli.six', {encoding: 'ascii'}));
 

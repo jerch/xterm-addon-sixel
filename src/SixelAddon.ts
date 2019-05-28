@@ -107,19 +107,30 @@ class ImageStorage {
         const tileNum = row * cols + col;
         bufferRow.setCellFromCodePoint(offset + col, CODE, 1, fg, tileNum);
       }
+      if (row < rows - 1) {
+        buffer.y++;
+        if (buffer.y > buffer.scrollBottom) {
+          buffer.y--;
+          internalTerm.scroll(false);
+        }
+      }
+    }
+    if (offset + cols >= internalTerm.cols) {
       buffer.y++;
       if (buffer.y > buffer.scrollBottom) {
         buffer.y--;
         internalTerm.scroll(false);
       }
+      internalTerm.buffer.x = 0;
+    } else {
+      internalTerm.buffer.x = offset + cols;
     }
-    internalTerm.buffer.x = offset + cols;
 
     
     
     // debug
-    document.body.appendChild(document.createElement('br'));
-    document.body.appendChild(img);
+    //document.body.appendChild(document.createElement('br'));
+    //document.body.appendChild(img);
   }
 
   /**
