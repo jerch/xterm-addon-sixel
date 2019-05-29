@@ -39,6 +39,7 @@
     "xterm": "^3.10.0"
   },
   "dependencies": {
+    "imagesize": "git+https://github.com/jerch/node-imagesize.git",
     "sixel": "git+https://github.com/jerch/node-sixel.git"
   }
 }

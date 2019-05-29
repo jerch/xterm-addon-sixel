@@ -7,6 +7,7 @@
 
 import { Terminal, IDisposable } from 'xterm';
 import { SixelImage, toRGBA8888 } from 'sixel';
+import { ImageSize, ImageType, ISize as IImageSize } from 'imagesize';
 
 // buffer placeholder
 // FIXME: find better method to announce foreign content
@@ -39,10 +40,13 @@ interface IImageSpec {
   urlCache: {[key: number]: string};
 }
 
+type UintTypedArray = Uint8Array | Uint16Array | Uint32Array | Uint8ClampedArray;
+
 /**
  * Image Storage
  * 
  * TODO: add markers for lifecycle management
+ * TODO: make _images a {}
  */
 class ImageStorage {
   private _images: IImageSpec[] = [];
@@ -89,7 +93,7 @@ class ImageStorage {
    * Does all the needed low level stuff to tile the image data correctly
    * onto the terminal buffer cells.
    */
-  public addImage(img: HTMLCanvasElement): void {
+  public addImage(img: HTMLCanvasElement): number {
     /**
      * TODO - create markers:
      *    start marker  - first line containing image data
@@ -107,6 +111,7 @@ class ImageStorage {
     const cols = Math.ceil(img.width / this._cellSize.width);
     const rows = Math.ceil(img.height / this._cellSize.height);
 
+    const position = this._images.length;
     this._images.push({
       orig: img,
       origCellSize: this._cellSize,
@@ -150,6 +155,7 @@ class ImageStorage {
     } else {
       internalTerm.buffer.x = offset + cols;
     }
+    return position;
   }
 
   /**
@@ -177,6 +183,41 @@ class ImageStorage {
       ctx.putImageData(imageData, 0, 0);
       this.addImage(canvas);
     }
+  }
+
+  public addImageFromBase64(payload: UintTypedArray, size: IImageSize): void {
+    const canvas = document.createElement('canvas');
+    canvas.width = size.width;
+    canvas.height = size.height;
+    const pos = this.addImage(canvas);
+    const img = new Image(size.width, size.height);
+    img.onload = () => {
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(img, 0, 0);
+        // force refresh on this image
+        this._images[pos].actualCellSize = {width: 0, height: 0};
+        this._terminal.refresh(0, this._terminal.rows);
+      }
+    }
+    // create data url
+    let data = '';
+    for (let i = 0; i < payload.length; ++i) {
+      data += String.fromCharCode(payload[i]);
+    }
+    let intro = '';
+    switch (size.type) {
+      case ImageType.GIF:
+        intro = 'data:image/gif;base64,';
+        break;
+      case ImageType.JPEG:
+        intro = 'data:image/jpeg;base64,';
+        break;
+      case ImageType.PNG:
+        intro = 'data:image/png;base64,';
+        break;
+    }
+    img.src = intro + data;
   }
 
   public render(e: {start: number, end: number}): void {
@@ -218,7 +259,6 @@ class ImageStorage {
   }
 
   private _drawToDom(imgId: number, tileId: number, col: number, row: number, rows: any): void {
-    // TODO: cache tile URLs
     this._rescale(imgId);
     let dataUrl = this._images[imgId].urlCache[tileId];
     if (!dataUrl) {
@@ -244,7 +284,7 @@ class ImageStorage {
         cellWidth,
         cellHeight,
       );
-      this._images[imgId].urlCache[tileId] = canvas.toDataURL();
+      this._images[imgId].urlCache[tileId] = canvas.toDataURL('image/jpeg');
       dataUrl = this._images[imgId].urlCache[tileId];
     }
 
@@ -321,7 +361,17 @@ class SIXEL implements IDcsHandler {
   }
 }
 
+const FIELD_PARSER: {[key: string]: (data: string) => any} = {
+  name: (data: string) => atob(data),
+  size: parseInt,
+  width: (data: string) => data,
+  height: (data: string) => data,
+  preserveAspectRatio: parseInt,
+  inline: parseInt
+}
+
 export class SixelAddon implements ITerminalAddon {
+  private _imageHandler: IDisposable | null = null;
   public activate(terminal: Terminal): void {
     const imageStorage = new ImageStorage(terminal);
 
@@ -330,8 +380,55 @@ export class SixelAddon implements ITerminalAddon {
     const _term: any = (terminal as any)._core;
     (_term._inputHandler as any)._parser.setDcsHandler('q', new SIXEL(imageStorage));
 
+    // other image formats
+    // use iTerm style for now
+    // FIXME in xterm.js - rework osc handler with a DCS handler like interface:
+    //  --> explicit hook/unhook, eating chunks of bytes
+    this._imageHandler = terminal.addOscHandler(1337, data => {
+      // skip File=
+      const start = (data.startsWith('File=')) ? 5 : 0;
+      const divider = data.indexOf(':');
+      if (divider === -1) {
+        return false;
+      }
+      // extract header fields
+      const entries = data.slice(start, divider).split(';').reduce(
+        (accu: {[key: string]: string | number}, current) => {
+          const [key, value] = current.split('=');
+          accu[key] = (FIELD_PARSER[key]) ? FIELD_PARSER[key](value) : value;
+          return accu;
+        }, {name: 'Unnamed file', preserveAspectRatio: 1, inline: 0}
+      );
+
+      // dont handle file downloads
+      if (!entries.inline) {
+        return false;
+      }
+      console.log(entries);
+      
+      const payload = new Uint8Array(data.length);
+      for (let i = 0; i < data.length; ++i) {
+        payload[i] = data.charCodeAt(i);
+      }
+
+      // determine image format and pixel size
+      const size = ImageSize.guessFormat(payload.subarray(divider + 1), true);
+      if (size.type === ImageType.INVALID || size.width === -1 || size.height === -1) {
+        return false;
+      }
+
+      // store image in ImageStorage
+      imageStorage.addImageFromBase64(payload.subarray(divider + 1), size);
+      return true;
+    });
+
     terminal.onRender(imageStorage.render.bind(imageStorage));
   }
 
-  public dispose(): void {}
+  public dispose(): void {
+    if (this._imageHandler) {
+      this._imageHandler.dispose();
+      this._imageHandler = null;
+    }
+  }
 }

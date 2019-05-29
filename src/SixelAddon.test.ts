@@ -72,6 +72,11 @@ describe('Sixel support', () => {
       (window as any).term.write('boticelli:\r\n' + data);
     }, fs.readFileSync('./boticelli.six', {encoding: 'ascii'}));
 
+    // iTerm2 style image support
+    await page.evaluate(data => {
+      (window as any).term.write('\r\niTerm2 style (base64 PNG):\r\n' + data);
+    }, fs.readFileSync('./imgcat_output', {encoding: 'ascii'}));
+
     await new Promise(resolve => setTimeout(() => resolve, 300000));
     server.close();
   });
