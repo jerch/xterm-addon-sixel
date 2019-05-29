@@ -36,6 +36,7 @@ interface IImageSpec {
   origCellSize: CellSize;
   actual: HTMLCanvasElement;
   actualCellSize: CellSize;
+  urlCache: {[key: number]: string};
 }
 
 /**
@@ -67,6 +68,7 @@ class ImageStorage {
       this._images[imgId].actual = this._images[imgId].orig;
       this._images[imgId].actualCellSize.width = ow;
       this._images[imgId].actualCellSize.height = oh;
+      this._images[imgId].urlCache = {};
       return;
     }
     const canvas = document.createElement('canvas');
@@ -78,6 +80,7 @@ class ImageStorage {
       this._images[imgId].actual = canvas;
       this._images[imgId].actualCellSize.width = cw;
       this._images[imgId].actualCellSize.height = ch;
+      this._images[imgId].urlCache = {};
     }
   }
 
@@ -99,16 +102,18 @@ class ImageStorage {
      *  - lifecycling of images
      *    delete image as soon as end marker got disposed
      */
-    this._images.push({
-      orig: img,
-      origCellSize: this._cellSize,
-      actual: img,
-      actualCellSize: this._cellSize
-    });
 
     // calc rows x cols needed to display the image
     const cols = Math.ceil(img.width / this._cellSize.width);
     const rows = Math.ceil(img.height / this._cellSize.height);
+
+    this._images.push({
+      orig: img,
+      origCellSize: this._cellSize,
+      actual: img,
+      actualCellSize: this._cellSize,
+      urlCache: {}
+    });
 
     // write placeholder into terminal buffer
     const imgIdx = this._images.length - 1;
@@ -178,6 +183,15 @@ class ImageStorage {
     const {start, end} = e;
     const internalTerm = (this._terminal as any)._core;
     const buffer = internalTerm.buffer;
+
+    const renderType = this._terminal.getOption('rendererType');
+    let rows: any = null;
+    let parent: any = null;
+    if (renderType === 'dom') {
+      rows = document.getElementsByClassName('xterm-rows')[0];
+      parent = rows.parentNode;
+      rows.remove();
+    }
     
     // walk all cells in viewport and draw tile if needed
     for (let row = start; row <= end; ++row) {
@@ -186,14 +200,67 @@ class ImageStorage {
         if (bufferRow.getCodePoint(col) === CODE) {
           const fg = bufferRow.getFg(col);
           if (fg & INVISIBLE) {
-            this._drawTile(fg & 0xFFFFFF, bufferRow.getBg(col) & 0xFFFFFF, col, row);
+            if (renderType === 'canvas') {
+              this._drawToCanvas(fg & 0xFFFFFF, bufferRow.getBg(col) & 0xFFFFFF, col, row);
+            } else if (renderType === 'dom') {
+              this._drawToDom(fg & 0xFFFFFF, bufferRow.getBg(col) & 0xFFFFFF, col, row, rows);
+            } else {
+              throw new Error('unssuported renderer');
+            }
           }
         }
       }
     }
+
+    if (renderType === 'dom') {
+      parent.append(rows);
+    }
   }
 
-  private _drawTile(imgId: number, tileId: number, col: number, row: number): void {
+  private _drawToDom(imgId: number, tileId: number, col: number, row: number, rows: any): void {
+    // TODO: cache tile URLs
+    this._rescale(imgId);
+    let dataUrl = this._images[imgId].urlCache[tileId];
+    if (!dataUrl) {
+      const img = this._images[imgId].actual;
+      const {width: cellWidth, height: cellHeight} = this._cellSize;
+      const cols = Math.ceil(img.width / cellWidth);
+  
+      const canvas = document.createElement('canvas');
+      canvas.width = cellWidth;
+      canvas.height = cellHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        return;
+      }
+      ctx.drawImage(
+        img,
+        (tileId % cols) * cellWidth,
+        Math.floor(tileId / cols) * cellHeight,
+        cellWidth,
+        cellHeight,
+        0,
+        0,
+        cellWidth,
+        cellHeight,
+      );
+      this._images[imgId].urlCache[tileId] = canvas.toDataURL();
+      dataUrl = this._images[imgId].urlCache[tileId];
+    }
+
+    const rowEl = rows.children[row];
+    if (rowEl) {
+      const colEl = rowEl.children[col];
+      if (colEl) {
+        colEl.textContent = ' ';
+        colEl.style.backgroundImage = `url('${dataUrl}')`;
+        colEl.style.overflow = 'hidden';
+      }
+    }
+
+  }
+
+  private _drawToCanvas(imgId: number, tileId: number, col: number, row: number): void {
     const internalTerm = (this._terminal as any)._core;
 
     // shamelessly draw on foreign canvas for now
