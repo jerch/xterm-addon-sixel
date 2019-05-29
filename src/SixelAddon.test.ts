@@ -41,7 +41,7 @@ describe('Sixel support', () => {
   });
 
   it('yay', async function(): Promise<any> {
-    this.timeout(60000);
+    this.timeout(300000);
     await openTerminal({ rendererType: 'canvas' });
     const port = 8080;
     const server = new WebSocket.Server({ port });
@@ -51,6 +51,11 @@ describe('Sixel support', () => {
     await page.evaluate(`
       window.term.loadAddon(new window.SixelAddon());
     `);
+
+    // term width
+    await page.evaluate(() => {
+      (window as any).term.write('###########'.repeat(10));
+    });
 
     // wikipedia example
     await page.evaluate(data => {
@@ -64,10 +69,10 @@ describe('Sixel support', () => {
 
     // boticelli demo file
     await page.evaluate(data => {
-      (window as any).term.write('\r\nboticelli:\r\n' + data);
+      (window as any).term.write('boticelli:\r\n' + data);
     }, fs.readFileSync('./boticelli.six', {encoding: 'ascii'}));
 
-    await new Promise(resolve => setTimeout(() => resolve, 60000));
+    await new Promise(resolve => setTimeout(() => resolve, 300000));
     server.close();
   });
 });

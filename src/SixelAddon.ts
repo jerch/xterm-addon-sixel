@@ -8,13 +8,8 @@
 import { Terminal, IDisposable } from 'xterm';
 import { SixelImage, toRGBA8888 } from 'sixel';
 
-interface ISixelOptions {
-  // whether to rescale with cell size changes
-  rescale?: boolean;
-  // whether to reflow with terminal size changes - unlikely
-  reflow?: boolean;
-}
-
+// buffer placeholder
+// FIXME: find better method to announce foreign content
 const CODE = 0x110000; // illegal unicode char
 const INVISIBLE = 0x40000000; // taken from BufferLine.ts
 
@@ -29,11 +24,6 @@ interface IDcsHandler {
   hook(collect: string, params: number[], flag: number): void;
   put(data: Uint32Array, start: number, end: number): void;
   unhook(): void;
-}
-
-interface BufferCoord {
-  col: number;
-  row: number;
 }
 
 interface CellSize {
@@ -66,6 +56,31 @@ class ImageStorage {
     }
   }
 
+  private _rescale(imgId: number): void {
+    const {width: cw, height: ch} = this._cellSize;
+    const {width: aw, height: ah} = this._images[imgId].actualCellSize;
+    if (cw === aw && ch === ah) {
+      return;
+    }
+    const {width: ow, height: oh} = this._images[imgId].origCellSize;
+    if (cw === ow && ch === oh) {
+      this._images[imgId].actual = this._images[imgId].orig;
+      this._images[imgId].actualCellSize.width = ow;
+      this._images[imgId].actualCellSize.height = oh;
+      return;
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.ceil(this._images[imgId].orig.width * cw / ow);
+    canvas.height = Math.ceil(this._images[imgId].orig.height * ch / oh);
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.drawImage(this._images[imgId].orig, 0, 0, canvas.width, canvas.height);
+      this._images[imgId].actual = canvas;
+      this._images[imgId].actualCellSize.width = cw;
+      this._images[imgId].actualCellSize.height = ch;
+    }
+  }
+
   /**
    * Method to add an image to the storage.
    * Does all the needed low level stuff to tile the image data correctly
@@ -73,10 +88,16 @@ class ImageStorage {
    */
   public addImage(img: HTMLCanvasElement): void {
     /**
-     * Initial img setup:
-     * - translate img size into current rows x cols
-     * - make room in buffer
-     * - create markers
+     * TODO - create markers:
+     *    start marker  - first line containing image data
+     *    end marker    - line below last line containing image data
+     * 
+     * use markers:
+     *  - speedup rendering
+     *    instead of searching cell by cell through all viewport cells,
+     *    search for image start-end marker intersections with viewport lines
+     *  - lifecycling of images
+     *    delete image as soon as end marker got disposed
      */
     this._images.push({
       orig: img,
@@ -90,7 +111,6 @@ class ImageStorage {
     const rows = Math.ceil(img.height / this._cellSize.height);
 
     // write placeholder into terminal buffer
-    // what is a good placeholder? - code: 0x110000, width: 1, flag: INVISIBLE FG: image idx, BG: tile number
     const imgIdx = this._images.length - 1;
     const fg = INVISIBLE | imgIdx;
 
@@ -125,12 +145,6 @@ class ImageStorage {
     } else {
       internalTerm.buffer.x = offset + cols;
     }
-
-    
-    
-    // debug
-    //document.body.appendChild(document.createElement('br'));
-    //document.body.appendChild(img);
   }
 
   /**
@@ -166,7 +180,7 @@ class ImageStorage {
     const buffer = internalTerm.buffer;
     
     // walk all cells in viewport and draw tile if needed
-    for (let row = start; row < end; ++row) {
+    for (let row = start; row <= end; ++row) {
       const bufferRow = buffer.lines.get(row + buffer.ydisp);
       for (let col = 0; col < internalTerm.cols; ++col) {
         if (bufferRow.getCodePoint(col) === CODE) {
@@ -186,24 +200,21 @@ class ImageStorage {
     // FIXME: needs own layer
     const ctx: CanvasRenderingContext2D = internalTerm.renderer._renderLayers[0]._ctx;
 
+    this._rescale(imgId);
     const img = this._images[imgId].actual;
+    const {width: cellWidth, height: cellHeight} = this._cellSize;
+    const cols = Math.ceil(img.width / cellWidth);
 
-    const cols = Math.ceil(img.width / this._cellSize.width);
-
-    const tileX = tileId % cols;
-    const tileY = Math.floor(tileId / cols);
-
-    // void ctx.drawImage(image, sx, sy, sWidth, sHeight, dx, dy, dWidth, dHeight);
     ctx.drawImage(
       img,
-      tileX * this._cellSize.width,
-      tileY * this._cellSize.height,
-      this._cellSize.width,
-      this._cellSize.height,
-      col * this._cellSize.width,
-      row * this._cellSize.height,
-      this._cellSize.width,
-      this._cellSize.height,
+      (tileId % cols) * cellWidth,
+      Math.floor(tileId / cols) * cellHeight,
+      cellWidth,
+      cellHeight,
+      col * cellWidth,
+      row * cellHeight,
+      cellWidth,
+      cellHeight,
     );
   }
 }
@@ -244,8 +255,6 @@ class SIXEL implements IDcsHandler {
 }
 
 export class SixelAddon implements ITerminalAddon {
-  constructor(options?: ISixelOptions) {}
-
   public activate(terminal: Terminal): void {
     const imageStorage = new ImageStorage(terminal);
 
