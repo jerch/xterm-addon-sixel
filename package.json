@@ -16,30 +16,30 @@
     "test": "mocha \"lib/**/*.test.js\""
   },
   "devDependencies": {
-    "@types/chai": "^4.1.7",
-    "@types/mocha": "^5.2.6",
-    "@types/puppeteer": "^1.12.4",
-    "@types/ws": "^6.0.1",
+    "@types/chai": "^4.2.4",
+    "@types/mocha": "^5.2.7",
+    "@types/puppeteer": "^1.20.2",
+    "@types/ws": "^6.0.3",
     "chai": "^4.2.0",
     "express": "^4.16.4",
     "express-ws": "^4.0.0",
-    "mocha": "^6.1.4",
-    "puppeteer": "^1.16.0",
+    "mocha": "^6.2.2",
+    "puppeteer": "^1.20.0",
     "should": "^13.2.3",
     "source-map-loader": "^0.2.4",
-    "ts-loader": "^6.0.0",
-    "tslint": "^5.16.0",
-    "tslint-consistent-codestyle": "^1.15.1",
-    "typescript": "^3.2.2",
-    "webpack": "^4.31.0",
-    "ws": "^7.0.0",
-    "xterm": "3.14.0-beta12"
+    "ts-loader": "^6.2.1",
+    "tslint": "^5.20.0",
+    "tslint-consistent-codestyle": "^1.16.0",
+    "typescript": "^3.6.4",
+    "webpack": "^4.41.2",
+    "ws": "^7.2.0"
   },
   "peerDependencies": {
     "xterm": "^3.10.0"
   },
   "dependencies": {
     "imagesize": "git+https://github.com/jerch/node-imagesize.git",
-    "sixel": "git+https://github.com/jerch/node-sixel.git"
+    "sixel": "^0.11.0",
+    "xterm": "^4.1.0"
   }
 }
